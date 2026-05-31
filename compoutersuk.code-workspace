@@ -1,8 +1,244 @@
-{
-	"folders": [
-		{
-			"path": "../../Users/kims_family"
-		}
-	],
-	"settings": {}
-}
+
+import pygame, math, random
+
+pygame.init()
+
+WIDTH, HEIGHT = 1280, 720
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Gravity Orbit Collector")
+clock = pygame.time.Clock()
+
+WHITE=(255,255,255)
+BLACK=(10,10,20)
+BLUE=(100,180,255)
+GREEN=(80,255,120)
+RED=(255,80,80)
+YELLOW=(255,220,80)
+PURPLE=(200,120,255)
+GRAY=(130,130,130)
+
+font_big=pygame.font.SysFont(None,60)
+font_mid=pygame.font.SysFont(None,36)
+font_small=pygame.font.SysFont(None,28)
+
+TITLE, AIMING, PLAYING, WIN, GAMEOVER = range(5)
+
+class Planet:
+    def __init__(self,x,y,radius,gravity):
+        self.x=x; self.y=y
+        self.radius=radius
+        self.gravity=gravity
+
+    def draw(self):
+        pygame.draw.circle(screen, BLUE, (int(self.x),int(self.y)), self.radius)
+        pygame.draw.circle(screen, WHITE, (int(self.x),int(self.y)), self.radius,2)
+
+class Debris:
+    def __init__(self,x,y):
+        self.x=x; self.y=y
+        self.radius=10
+        self.collected=False
+
+    def draw(self):
+        if not self.collected:
+            pygame.draw.circle(screen,YELLOW,(int(self.x),int(self.y)),self.radius)
+
+class Drone:
+    def __init__(self,x,y):
+        self.x=x; self.y=y
+        self.vx=0; self.vy=0
+        self.ax=0; self.ay=0
+        self.radius=10
+        self.fuel=100
+
+    def update(self):
+        self.vx += self.ax
+        self.vy += self.ay
+        self.x += self.vx
+        self.y += self.vy
+
+def gravity(drone, planets):
+    drone.ax=0
+    drone.ay=0
+    for p in planets:
+        dx=p.x-drone.x
+        dy=p.y-drone.y
+        d2=dx*dx+dy*dy
+        if d2 < 25:
+            continue
+        d=math.sqrt(d2)
+        force=p.gravity/d2
+        drone.ax += force*dx/d
+        drone.ay += force*dy/d
+
+def trajectory(x,y,vx,vy,planets):
+    pts=[]
+    tx,ty=x,y
+    tvx,tvy=vx,vy
+    for _ in range(250):
+        ax=ay=0
+        for p in planets:
+            dx=p.x-tx
+            dy=p.y-ty
+            d2=dx*dx+dy*dy
+            if d2<25: continue
+            d=math.sqrt(d2)
+            f=p.gravity/d2
+            ax += f*dx/d
+            ay += f*dy/d
+        tvx += ax
+        tvy += ay
+        tx += tvx
+        ty += tvy
+        pts.append((int(tx),int(ty)))
+    return pts
+
+def new_game():
+    planets=[
+        Planet(450,300,45,2200),
+        Planet(850,450,60,3200),
+        Planet(900,180,35,1800)
+    ]
+    debris=[]
+    while len(debris)<8:
+        x=random.randint(80,1200)
+        y=random.randint(80,640)
+        ok=True
+        for p in planets:
+            if math.hypot(x-p.x,y-p.y)<p.radius+80:
+                ok=False
+        if ok:
+            debris.append(Debris(x,y))
+    return planets, debris, Drone(120, HEIGHT//2)
+
+state=TITLE
+planets,debris,drone=new_game()
+
+dragging=False
+drag_start=(0,0)
+score=0
+shots=5
+
+running=True
+while running:
+    clock.tick(60)
+
+    for event in pygame.event.get():
+        if event.type==pygame.QUIT:
+            running=False
+
+        if state==TITLE:
+            if event.type==pygame.KEYDOWN and event.key==pygame.K_SPACE:
+                state=AIMING
+
+        elif state in (WIN,GAMEOVER):
+            if event.type==pygame.KEYDOWN and event.key==pygame.K_r:
+                planets,debris,drone=new_game()
+                score=0
+                shots=5
+                state=AIMING
+
+        elif state==AIMING:
+            if event.type==pygame.MOUSEBUTTONDOWN and event.button==1:
+                dragging=True
+                drag_start=pygame.mouse.get_pos()
+
+            if event.type==pygame.MOUSEBUTTONUP and event.button==1 and dragging:
+                dragging=False
+                end=pygame.mouse.get_pos()
+
+                dx=drag_start[0]-end[0]
+                dy=drag_start[1]-end[1]
+
+                power=min(math.hypot(dx,dy)*0.06,12)
+                angle=math.atan2(dy,dx)
+
+                drone.vx=math.cos(angle)*power
+                drone.vy=math.sin(angle)*power
+
+                shots-=1
+                state=PLAYING
+
+    screen.fill(BLACK)
+
+    if state==TITLE:
+        t=font_big.render("GRAVITY ORBIT COLLECTOR",True,WHITE)
+        screen.blit(t,t.get_rect(center=(WIDTH//2,220)))
+        s=font_mid.render("Press SPACE",True,GREEN)
+        screen.blit(s,s.get_rect(center=(WIDTH//2,360)))
+
+    else:
+        for p in planets:
+            p.draw()
+
+        for d in debris:
+            d.draw()
+
+        pygame.draw.circle(screen,GREEN,(int(drone.x),int(drone.y)),drone.radius)
+
+        if state==AIMING:
+            if dragging:
+                cur=pygame.mouse.get_pos()
+                pygame.draw.line(screen,RED,drag_start,cur,3)
+
+                dx=drag_start[0]-cur[0]
+                dy=drag_start[1]-cur[1]
+                power=min(math.hypot(dx,dy)*0.06,12)
+                ang=math.atan2(dy,dx)
+                vx=math.cos(ang)*power
+                vy=math.sin(ang)*power
+
+                pts=trajectory(drone.x,drone.y,vx,vy,planets)
+                if len(pts)>1:
+                    pygame.draw.lines(screen,PURPLE,False,pts,2)
+
+        if state==PLAYING:
+            gravity(drone,planets)
+
+            thrust=0.12
+            keys=pygame.key.get_pressed()
+
+            if drone.fuel>0:
+                if keys[pygame.K_LEFT]:
+                    drone.ax-=thrust; drone.fuel-=0.1
+                if keys[pygame.K_RIGHT]:
+                    drone.ax+=thrust; drone.fuel-=0.1
+                if keys[pygame.K_UP]:
+                    drone.ay-=thrust; drone.fuel-=0.1
+                if keys[pygame.K_DOWN]:
+                    drone.ay+=thrust; drone.fuel-=0.1
+
+            drone.update()
+
+            for p in planets:
+                if math.hypot(drone.x-p.x,drone.y-p.y) < drone.radius+p.radius:
+                    state=GAMEOVER
+
+            for d in debris:
+                if not d.collected and math.hypot(drone.x-d.x,drone.y-d.y) < drone.radius+d.radius:
+                    d.collected=True
+                    score += 100
+
+            if drone.x<0 or drone.x>WIDTH or drone.y<0 or drone.y>HEIGHT:
+                state=GAMEOVER
+
+            if all(x.collected for x in debris):
+                state=WIN
+
+        screen.blit(font_small.render(f"Score: {score}",True,WHITE),(20,20))
+        screen.blit(font_small.render(f"Shots: {shots}",True,WHITE),(20,55))
+        screen.blit(font_small.render(f"Fuel: {int(drone.fuel)}",True,WHITE),(20,90))
+
+        if state==WIN:
+            txt=font_big.render("YOU WIN!",True,GREEN)
+            screen.blit(txt,txt.get_rect(center=(WIDTH//2,300)))
+            screen.blit(font_mid.render("Press R to Restart",True,WHITE),(480,380))
+
+        if state==GAMEOVER:
+            txt=font_big.render("GAME OVER",True,RED)
+            screen.blit(txt,txt.get_rect(center=(WIDTH//2,300)))
+            screen.blit(font_mid.render("Press R to Restart",True,WHITE),(480,380))
+
+    pygame.display.flip()
+
+pygame.quit()
